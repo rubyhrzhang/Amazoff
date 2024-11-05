@@ -1,0 +1,268 @@
+---
+title: "Untitled"
+author: "xxxxx"
+date: "2023-05-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+rm(list=ls())
+set.seed(1)
+```
+
+## 1.1 Helper functions for basic simulation
+
+### a) Homogeneous Poisson processes (join, accident)
+
+```{r}
+# this function simulates events and their timing, according to a homogeneous poisson process, and outputs the number of events that occur within the time horizon specified
+num_hom = function(horizon, rate) {
+  
+  # initialise
+  t = 0 # current time
+  I = 0 # number of events
+  S = c() # will hold event times
+  
+  # simulate events and stop when current event time surpasses the time horizon
+  while (t <= horizon){
+    
+    # generate time of next event
+    U = runif(1)
+    t = t - (1/rate) * log(U)
+    
+    # only increment count of events if new event time does not surpass the time horizon
+    if (t <= horizon) {
+      I <- I + 1
+      S <- c(S, t)
+    }
+  }
+  
+  # return the number of events that occured
+  return(I)
+}
+```
+
+### b) Non-homogeneous Poisson process (leave)
+
+```{r}
+# this function simulates events and their timing, according to a non-homogeneous poisson process, and outputs the number of events that occur within the time horizon specified
+num_nonhom_leave = function(horizon) {
+  
+  # initialise
+  t = 0 # current time
+  I = 0 # number of events
+  S = c() # will hold event times
+  
+  mu_bound <- 1/12 # upper bound for non-homogeneous poisson process with rate mu(t)
+
+  # simulate events and stop when current event time surpasses the time horizon
+  while (t <= horizon){
+    
+    # generate time of next event
+    U = runif(1)
+    t = t - (1/mu_bound) * log(U)
+    
+    # calculate likelihood of an event occurring at the current time
+    L <- mu(t) / mu_bound
+
+    # only increment the count of events if the generated random variable is less than or equal to the likelihood
+    if (runif(1) <= L){
+      I = I + 1
+      S = c(S,t)
+    } 
+  }
+  
+  # return the number of events that occured
+  return(I)
+}
+```
+
+### c) Bernoulli r.v. (if claim)
+
+```{r}
+# this function simulates whether or not a claim is made, based on a Bernoulli distributed random variable, with probability of success (claim made) at 0.6
+rv_bernoulli <- function(p_success) {
+  return(runif(1) < 0.6)
+}
+```
+
+### d) Specific discrete r.v. (amount claimed)
+
+```{r}
+# this function simulates the amount claimed on an accident, based on the given function 300X+500, where X takes values {0, 1, ..., 10} and follows the uniform distribution 
+rv_specific_discrete <- function() {
+  X <- floor(11 * runif(1))
+  return(300 * X + 500)
+}
+```
+
+## 1.2 [new] Helper functions for confidence
+
+### e) Sample mean
+
+```{r}
+# this function calculates the sample mean, which is an unbiased estimator of the population mean (i.e. C12, the capital after 12 months)
+sample_mean <- function(x, n) {
+  x_bar <- sum(x) / n
+  return(x_bar)
+}
+```
+
+### f) Sample standard deviation
+
+```{r}
+# this function calculates the sample standard deviation
+sample_sd <- function(x, sample_size) {
+  
+  # calculate the sample mean
+  x_bar <- sample_mean(x, sample_size)
+  
+  # calculate the sum of squared differences from the mean
+  squared_diff_sum <- sum((x - x_bar)^2)
+  
+  # hence calculate the sample variance (s^2)
+  s2 <- squared_diff_sum / (sample_size - 1)
+  
+  # returns the sample standard deviation
+  return(sqrt(s2))
+}
+```
+
+## 2 Initialisation of parameters
+
+```{r}
+n_0 <- 0 # initial number of customers
+c_0 <- 50000 # initial capital stock
+M <- 300 # fixed monthly fee
+C <- 30000 # capital threshold before legal complications
+lambda <- 3 # monthly rate at which customers join 
+mu <- function(t) 1/(12 + t) # monthly rate at which customers leave 
+alpha <- 3.5 # annual rate of accidents 
+K <- 2500 # the number of simulation iterations
+```
+
+## 3. Main code for simulation
+
+note: must reset monthly, due to the membership fee (M) being paid monthly
+
+### a) Simulation
+
+```{r}
+# initialize results and counters
+
+verdict <- c() # stores 0s and 1s where a 1 indicates company 'failed'
+capital <- c() # stores the capital available at the end of the 12 months
+
+for (i in 1:K) {
+  
+  # initialise 
+  t <- 0 # current time
+  n <- n_0 # starting number of customers
+  c <- c_0 # starting amount of capital
+
+  # repeat for each of the 12 months in a year
+  for (month in 1:12) {
+    
+    # ARRIVALS (per month)
+    num_join_month = num_hom(1, lambda)
+    
+    # DEPARTURES (per month)
+    num_leave_month = num_nonhom_leave(1)
+    
+    # -update- capital (based on number of clients and their membership payment (per month))
+    n <- n + num_join_month - num_leave_month
+    c <- c + n*M
+    
+    # ACCIDENTS (per customer per month)
+    num_acc_month <- 0
+    for (j in 1:n) {
+      num_acc_customer <- num_hom(1, alpha/12)
+      
+      # -update- accidents counter
+      num_acc_month <- num_acc_month + num_acc_customer
+    }
+
+    # CLAIM & AMOUNT (per accident)
+    for (k in 1:num_acc_month) {
+      
+      # claim, per accident
+      claim_made_customer = rv_bernoulli(0.6)
+      
+      # amount, per accident
+      if (claim_made_customer) {
+        amount_claimed_customer = rv_specific_discrete()
+        
+        # -update- capital (based on each accident claimed)
+        c <- c - amount_claimed_customer
+      }
+    }
+  }
+  
+  # -update- verdict (for current simulation year) 
+  if (c < C) {
+    verdict = c(verdict, 1) # record 'company failed' as 1
+  } else {
+    verdict = c(verdict, 0) # record 'company succeeded' as 0
+  }
+  # -update- capital at the end of the year
+  capital <- c(capital, c)
+}
+```
+
+### b) [new] [90%] Calculations and results
+
+new section for the confidence related calculations
+
+```{r}
+# NEW PARAMETERS for the confidence related calculations
+desired_margin_of_error <- 500 
+confidence_level <- 0.9 
+K_increment <- 500 # note: for the 90% confidence, need around K=2500 to be within the desired margin or error
+
+# calculate sample mean and sample standard deviation
+mean_capital <- sample_mean(capital, K)
+sd_capital <- sample_sd(capital, K)
+
+# calculate the margin of error allowed for 90% confidence of estimate of E[C12]
+critical_value <- 1.644854 # critical value for 90%
+actual_margin_of_error <- critical_value * (sd_capital / sqrt(K))
+
+# check if desired margin met (2 × actual_margin_of_error < 500);
+# -> not satisfied: increase iterations and reconstruct the 90% confidence interval
+if (actual_margin_of_error < desired_margin_of_error) {
+  
+  # required condition met, output results and end
+  summary_results <- data.frame(
+  "Measure" = c("Estimated E(C12) with 90% confidence within £500 of true (£)",
+                "Lower bound of confidence interval (£)",
+                "Upper bound of confidence interval (£)",
+                "Difference in upper and lower bounds (£)",
+                "Variance of estimate for E[C12]",
+                "Number of iterations"),
+  "Value" = c(mean_capital,
+              mean_capital-actual_margin_of_error,
+              mean_capital+actual_margin_of_error,
+              actual_margin_of_error*2,
+              sd_capital,
+              K)
+  )
+  print(summary_results)
+
+} else {
+  # actual margin increase the number of iterations
+  K <- K + K_increment 
+  paste0("Calculated margin is too big. Rerun. Number of iterations has been increased to: ", K)
+  }
+```
+
+c) Plot of distribution
+```{r}
+# simulate values of capital and create a histogram
+hist(capital, breaks = 100, main = "Histogram of Capital Values 90% confidence (K=2500)", xlab = "Capital", ylab = "Frequency")
+abline(v = mean_capital, col = "red", lty = 2, lwd = 2)
+```
+
