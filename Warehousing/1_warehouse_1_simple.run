@@ -1,0 +1,12 @@
+reset;
+
+model 1_warehouse_1_simple.mod;
+data 1_warehouse_1_simple.dat;
+
+option solver cplex; 
+solve; 
+
+display open_facility, assign_f_c; 
+display TotalCost;
+
+# include "1_warehouse_1_simple.run"
