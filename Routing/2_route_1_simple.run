@@ -1,0 +1,11 @@
+reset;
+
+model 2_route_1_simple.mod;
+data 2_route_1_simple.dat;
+
+option solver cplex; 
+solve; 
+
+display included, TotalCost;
+
+# include "2_route_1_simple.run"

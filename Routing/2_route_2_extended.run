@@ -1,0 +1,11 @@
+reset;
+
+model 2_route_2_extended.mod;
+data 2_route_2_extended.dat;
+
+option solver cplex; 
+solve; 
+
+display included, TotalCost;
+
+# include "2_route_2_extended.run"
